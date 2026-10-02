@@ -17,6 +17,14 @@ export class ScriptedProvider implements ModelProvider {
     const first = (i.messages[0] as any).text as string;
     const tender = first.match(/Tender (TND-[A-Za-z0-9-]+)/)?.[1] ?? "";
     if (!i.tools.length) return { text: "- Check mandatory documents and technical requirements per bid\n- Use first ~37% of bids to calibrate price/delivery references\n- Verify every flagged finding against source pages\n- Leave all award decisions to the human committee", toolCalls: [] };
+    if (/^Assistant query:/.test(first)) {
+      const had = i.messages.some((m: any) => m.role === "tool");
+      const kw = (first.match(/Assistant query: (.*)/)?.[1] ?? "").replace(/[^A-Za-z ]/g, " ").split(/\s+/).find((w) => w.length > 3 && !/^(find|show|search|open|tenders?|procurements?|data|for|in|the)$/i.test(w)) ?? "supply";
+      const iso = (first.match(/\b(Kenya|Rwanda|Tanzania|Nigeria|Ghana|Zambia|Uganda|Liberia|South Africa)\b/i)?.[1] ?? "").toLowerCase();
+      const code: Record<string, string> = { kenya: "KE", rwanda: "RW", tanzania: "TZ", nigeria: "NG", ghana: "GH", zambia: "ZM", uganda: "UG", liberia: "LR", "south africa": "ZA" };
+      if (!had) return { text: "Searching published procurements.", toolCalls: [{ id: "a1", name: "search_procurements", args: { keyword: kw, ...(code[iso] ? { country: code[iso] } : {}) } }] };
+      return { text: "Search complete. See the results panel for provenance, freshness and which records stand out against the calibration reference.", toolCalls: [] };
+    }
     const calls = i.messages.flatMap((m: any) => (m.role === "assistant" ? m.toolCalls ?? [] : []));
     const results = i.messages.flatMap((m: any) => (m.role === "tool" ? m.results : []));
     const id = (n: number) => `s${n}-${calls.length}`;

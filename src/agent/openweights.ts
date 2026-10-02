@@ -24,25 +24,26 @@ export function toOpenAiMessages(system: string, msgs: CanonMessage[]) {
 }
 
 export class OpenWeightsProvider implements ModelProvider {
-  readonly id = "openweights";
+  readonly id: string;
   readonly model: string; readonly actor: string;
   private url: string; private key: string;
   private fetchImpl: typeof fetch;
-  constructor(opts: { url?: string; key?: string; model?: string; fetchImpl?: typeof fetch } = {}) {
+  constructor(opts: { url?: string; key?: string; model?: string; fetchImpl?: typeof fetch; id?: string } = {}) {
+    this.id = opts.id ?? "openweights";
     this.url = (opts.url ?? process.env.OPENWEIGHTS_ENDPOINT_URL ?? "").replace(/\/$/, "");
     this.key = opts.key ?? process.env.OPENWEIGHTS_API_KEY ?? "";
     this.model = opts.model ?? process.env.OPENWEIGHTS_MODEL ?? "";
-    this.actor = `openweights:${this.model || "unconfigured"}`;
+    this.actor = `${this.id}:${this.model || "unconfigured"}`;
     this.fetchImpl = opts.fetchImpl ?? fetch;
-    if (!this.url || !this.model) throw new ProviderError("OpenWeightsProvider is not configured. Set OPENWEIGHTS_ENDPOINT_URL and OPENWEIGHTS_MODEL (and OPENWEIGHTS_API_KEY if your endpoint needs one).", "not_configured");
+    if (!this.url || !this.model) throw new ProviderError(this.id === "openai" ? "OpenAI is not configured. Set OPENAI_API_KEY and OPENAI_MODEL." : "OpenWeightsProvider is not configured. Set OPENWEIGHTS_ENDPOINT_URL and OPENWEIGHTS_MODEL (and OPENWEIGHTS_API_KEY if your endpoint needs one).", "not_configured");
   }
   async step(input: StepInput): Promise<StepOutput> {
     let res: Response;
     try {
       res = await this.fetchImpl(`${this.url}/chat/completions`, {
         method: "POST", headers: { "content-type": "application/json", ...(this.key ? { authorization: `Bearer ${this.key}` } : {}) },
-        body: JSON.stringify({ model: this.model, max_tokens: input.maxTokens ?? 1500, temperature: 0, messages: toOpenAiMessages(input.system, input.messages),
-          tools: input.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description ?? "", parameters: t.inputSchema } })) }),
+        body: JSON.stringify({ model: this.model, ...(this.id === "openai" ? { max_completion_tokens: input.maxTokens ?? 1500 } : { max_tokens: input.maxTokens ?? 1500, temperature: 0 }), messages: toOpenAiMessages(input.system, input.messages),
+          ...(input.tools.length ? { tools: input.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description ?? "", parameters: t.inputSchema } })) } : {}) }),
         signal: AbortSignal.timeout(120_000),
       });
     } catch (e: any) { throw new ProviderError(e?.message ?? String(e), /timeout|abort/i.test(e?.name + e?.message) ? "timeout" : "other"); }

@@ -22,7 +22,9 @@ User -> Web UI -> /api/runs -> LangGraph -> ModelProvider (Claude now; open-weig
 | Full LangGraph workflow over real MCP calls, 20 bids, all demo scenarios | **Tested with a scripted test-double model** (not an LLM) |
 | Failure handling (model outage mid-run) | **Tested** with the test double; see EVALS.md |
 | `next build` (production) | **Tested** locally; production-mode auth fails closed |
-| ClaudeProvider against the live Anthropic API | **NOT tested** (no API key in the build environment). Message translation is unit-tested only |
+| ClaudeProvider against the live Anthropic API | **Reached the API with a supplied key; the request was rejected with "credit balance too low".** So authentication/request shape reached Anthropic but no tool-calling response has been observed yet. Message translation is unit-tested |
+| OpenAI provider (model switcher) | **NOT tested** (no key); same OpenAI-compatible code path as OpenWeightsProvider, tested against a stub only |
+| Calibrated search + market resources | **Tested** against fixture tables in local Postgres (WASM). The sample open-contracting rows are SYNTHETIC; no real OCDS data has been ingested |
 | OpenWeightsProvider | **NOT tested against a real model.** Translation + parsing tested against a stubbed HTTP layer; unconfigured by default |
 | External MCP server | **Plumbing implemented, NOT verified against a real third-party server** |
 | Supabase / real Postgres | **NOT tested.** All runs used in-process PGlite (real Postgres in WASM). SQL is standard; `pgvector` migration is optional and was skipped under PGlite |
@@ -31,6 +33,14 @@ User -> Web UI -> /api/runs -> LangGraph -> ModelProvider (Claude now; open-weig
 ## MCP transport (verified against current docs)
 
 The current remote transport is **Streamable HTTP**. This repo uses Vercel's `mcp-handler@2` on top of `@modelcontextprotocol/server@2` (SDK v2), which serves the 2026-07-28 spec and falls back to stateless Streamable HTTP for 2025-era clients. The route is `src/app/api/mcp/route.ts`, so the endpoint is `/api/mcp` (also rewritten from `/mcp`). HTTP+SSE is not used.
+
+## Deploy without a terminal (browser only)
+
+1. Unzip `bid-box.zip`. On github.com: New repository -> **uploading an existing file** -> drag the *contents* of the `bid-box` folder in (so `package.json` is at the repo root) -> Commit.
+2. Supabase -> Project Settings -> Database -> copy the **pooled (Transaction, port 6543) connection string** and put your database password in it.
+3. vercel.com -> Add New -> Project -> import the repo. Add env vars `DATABASE_URL`, `MCP_AUTH_TOKEN`, `ADMIN_API_TOKEN` (any long random strings you make up, 32+ characters), `ANTHROPIC_API_KEY`. Deploy.
+4. Open the deployed URL, paste your `ADMIN_API_TOKEN` in the box at the top right, and click **Set up database + load demo tender** (this creates the tables and demo data; no SQL or terminal needed).
+5. Open `/api/health` to confirm `"database":"pg"`.
 
 ## Local development
 
@@ -76,6 +86,14 @@ See `.env.example`. Required in production: `DATABASE_URL`, `MCP_AUTH_TOKEN`, `A
 6. Connect a Claude/MCP client: URL above with header `Authorization: Bearer <MCP_AUTH_TOKEN>`. (Clients that cannot send custom headers will not be able to connect to a token-protected endpoint; note that some hosted MCP integrations expect OAuth, which this version does not implement.)
 
 Vercel Hobby functions are short-lived. Runs are processed in **batches** (`batch_size`) and state persists in `agent_runs`, so a run can be resumed by posting the returned `run_id` again. Set `maxDuration` according to your plan.
+
+## Search, models and data
+
+- **Search** (sidebar): an assistant panel that calls the `search_procurements` MCP tool. The model is selectable (Claude, OpenAI, open-weights, or *Direct search* with no model). Results are read in publication order; the first ~37% (1/e) calibrate a per-currency value reference and later results that deviate strongly are marked "stands out".
+- **Load data** button: creates tables if missing, loads the sample tender + 20 bids, and, if the open-contracting tables exist and are empty, adds clearly-labelled **synthetic** sample records (ocid prefix `ocds-sample-`).
+- **Test MCP** button: real MCP handshake + tool listing against this deployment, from the browser.
+- Extra env vars: `OPENAI_API_KEY` + `OPENAI_MODEL` enable the OpenAI option; `MCP_ALLOW_URL_TOKEN=true` allows `?token=` on `/api/mcp` for connectors that cannot send headers.
+- Migration `003_rls.sql` turns on row-level security (no policies) for Bid Box's own tables so the public Supabase API cannot read them; the app's direct database connection is unaffected.
 
 ## Using the agent against a real model
 

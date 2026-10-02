@@ -37,7 +37,7 @@ const mad = (a: number[]) => { const m = median(a); return median(a.map((x) => M
 const r = (x: number, d = 4) => Math.round(x * 10 ** d) / 10 ** d;
 
 /** Robust scale = max(1.4826*MAD, 5% of |median|). The floor stops a tight cluster producing absurd z-scores. */
-function dist(values: number[], ratio = false): Dist | undefined {
+export function dist(values: number[], ratio = false): Dist | undefined {
   const v = values.filter((x) => Number.isFinite(x));
   if (!v.length) return undefined;
   const m = median(v);

@@ -7,6 +7,7 @@ import { ProviderError, type ModelProvider, type StepInput, type StepOutput } fr
 export function createProvider(name = env.modelProvider): ModelProvider {
   if (name === "claude") return new ClaudeProvider();
   if (name === "openweights") return new OpenWeightsProvider();
+  if (name === "openai") return new OpenWeightsProvider({ id: "openai", url: "https://api.openai.com/v1", key: process.env.OPENAI_API_KEY ?? "", model: process.env.OPENAI_MODEL ?? "" });
   throw new ProviderError(`unknown MODEL_PROVIDER: ${name}`, "invalid");
 }
 

@@ -27,3 +27,10 @@ export const INVESTIGATE_PROMPT = (bid: string, tender: string, findings: any[],
 ${findings.map((f) => `- finding_id=${f.id} kind=${f.kind} severity=${f.severity}`).join("\n")}
 Decide which findings to verify with verify_evidence (a finding must be verified before it is relied on). If a verification returns CONTRADICTED, EVIDENCE_MISSING or RESOLVED, decide whether reading a source page via read_resource would help. ${hint ?? ""}
 Finish with one sentence on what is now established and what still needs the human committee.`;
+
+export const ASSISTANT_SYSTEM = `You are the Bid Box procurement search assistant. You help a user explore published public procurement data.
+- Use the search_procurements tool (and read_resource for bidbox://market/... resources) to answer. Do not answer from memory about specific tenders.
+- Report only what the tool returned: counts, titles, values, currencies, countries, ocids, and data freshness (update frequency, last sync). If nothing is found, say so; never invent records.
+- Results use a calibration method: results are taken in publication order, the first ~37% (1/e) form a reference, and later results that deviate strongly are marked stands_out. Explain that stands_out means "worth a closer look", not "best". Do not rank or recommend suppliers.
+- Keep answers short (4-6 sentences).`;
+export const ASSISTANT_PROMPT = (q: string) => `Assistant query: ${q}`;

@@ -59,18 +59,24 @@ export async function getDb(): Promise<Driver> {
   return g.__bidboxDb;
 }
 
+/** Applies each db/migrations/*.sql file once (tracked in bidbox_migrations). Files are idempotent, so a database that
+ *  already has the tables (created by an earlier version) simply records them as applied. */
 export async function runMigrations(d: Driver) {
+  await d.exec("CREATE TABLE IF NOT EXISTS bidbox_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())");
+  const done = new Set((await d.query("SELECT name FROM bidbox_migrations")).map((r) => r.name));
   const dir = path.join(process.cwd(), "db", "migrations");
   const files = fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
   for (const f of files) {
+    if (done.has(f)) continue;
     const sql = fs.readFileSync(path.join(dir, f), "utf8");
     try {
       await d.exec(sql);
     } catch (e: any) {
       // 002_vector.sql is best-effort (pgvector may be unavailable); everything else is fatal.
-      if (f.includes("vector")) console.warn(`[migrate] optional ${f} skipped: ${e.message}`);
-      else throw e;
+      if (f.includes("vector")) { console.warn(`[migrate] optional ${f} skipped: ${e.message}`); continue; }
+      throw e;
     }
+    await d.query("INSERT INTO bidbox_migrations (name) VALUES ($1) ON CONFLICT DO NOTHING", [f]);
   }
 }
 

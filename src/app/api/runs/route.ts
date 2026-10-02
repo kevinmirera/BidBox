@@ -14,7 +14,7 @@ const Body = z.object({
   tender_id: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
   run_id: z.string().uuid().optional(),
   batch_size: z.number().int().min(1).max(25).optional(),
-  provider: z.enum(["claude", "openweights", "scripted"]).optional(),
+  provider: z.enum(["claude", "openai", "openweights", "scripted"]).optional(),
   scripted_fail_after_steps: z.number().int().min(0).max(500).optional(), // test hook: simulate model outage (non-prod only)
 });
 

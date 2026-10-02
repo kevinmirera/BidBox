@@ -5,6 +5,7 @@ import { appendAudit, withAudit, type Ctx } from "./audit";
 import { NotFound, bidDocs, calibrationState, compareBid, getBid, getTender, ingestBid } from "../domain/repo";
 import { clip, documentIssue } from "../domain/extract";
 import { INSUFFICIENT, untrusted, verifyFinding } from "../domain/verify";
+import { marketBenchmark, marketCountries, marketProcurements, searchProcurements } from "../domain/market";
 import { NO_AWARD_STATEMENT, buildCommitteePackage, saveEvaluation } from "../domain/committee";
 
 // There is deliberately NO award_tender / select_winner / approve tool anywhere in this file.
@@ -22,7 +23,7 @@ const wrap = (r: { data: any; status: string; audit: any }) => ({
   structuredContent: { ...(r.data as Record<string, unknown>), _audit: r.audit },
 });
 
-export const TOOL_NAMES = ["load_tender", "ingest_bid", "compare_bid", "verify_evidence", "generate_committee_file", "log_action"] as const;
+export const TOOL_NAMES = ["load_tender", "ingest_bid", "compare_bid", "verify_evidence", "generate_committee_file", "log_action", "search_procurements"] as const;
 
 export function registerBidBox(server: McpServer) {
   const tool = <S extends z.ZodObject<any>>(name: string, description: string, schema: S, fn: (a: z.infer<S>, c: Ctx) => Promise<{ data: any; status?: "SUCCESS" | "FLAGGED" }>) => {
@@ -110,6 +111,11 @@ export function registerBidBox(server: McpServer) {
       return { data: { evaluation_id: id, ...pkg, export_status: "PENDING_HUMAN_APPROVAL", human_review_status: "COMMITTEE_REVIEW_REQUIRED", statement: NO_AWARD_STATEMENT }, } as any;
     });
 
+  tool("search_procurements",
+    "Search published procurements (shared open contracting schema) by keyword and optional country (ISO code). Read-only market context. Results are taken in publication order; the first ~37% (1/e) calibrate a per-currency value reference and later results that deviate strongly are marked stands_out (worth a closer look, never 'best' or 'recommended'). Reports data freshness and provenance (ocid).",
+    z.object({ keyword: z.string().min(2).max(60), country: z.string().regex(/^[A-Za-z]{2,3}$/).optional(), limit: z.number().int().min(3).max(100).optional() }),
+    async ({ keyword, country, limit }) => ({ data: await searchProcurements({ keyword, country, limit }) as any }));
+
   tool("log_action",
     "Record an agent-reported note in the audit trail. Optional: every tool call is already audited automatically by the server. Reported entries are marked as agent-reported and cannot modify or delete earlier records.",
     z.object({ agent_run_id: Id, tender_id: Id, bid_id: Id.optional(), tool_name: z.string().min(1).max(64), inputs: z.record(z.string(), z.unknown()).optional(), outputs: z.record(z.string(), z.unknown()).optional() }),
@@ -151,6 +157,16 @@ export function registerBidBox(server: McpServer) {
       const bids = await q(`SELECT ref, seq, status FROM bids WHERE tender_id=$1 ORDER BY seq`, [t.id]);
       const f = await q(`SELECT i.id, b.ref AS bid, i.kind, i.severity, i.status FROM investigations i JOIN bids b ON b.id=i.bid_id WHERE i.tender_id=$1 ORDER BY b.seq`, [t.id]);
       return text(uri, { calibration: { phase: cal.phase, size: cal.calibration_size, ingested: cal.ingested_in_set, stability: Number(cal.stability), version: cal.version, reference: cal.reference }, bids, findings: f, award_decisions_made: 0 }); });
+
+  server.registerResource("market-countries", "bidbox://market/countries",
+    { title: "Open contracting coverage", description: "Authorities/countries in the shared open contracting schema with update frequency and last sync (freshness)", mimeType: "application/json" },
+    async (uri) => text(uri, await marketCountries()));
+  server.registerResource("market-procurements", new ResourceTemplate("bidbox://market/{country}/procurements/{keyword}", { list: undefined }),
+    { title: "Published procurements (advisory)", description: "Recent published procurements matching a keyword for one country (ISO code), with provenance", mimeType: "application/json" },
+    async (uri, vars) => text(uri, await marketProcurements(v(vars.country), v(vars.keyword))));
+  server.registerResource("market-benchmark", new ResourceTemplate("bidbox://market/{country}/benchmark/{keyword}", { list: undefined }),
+    { title: "Award value benchmark (advisory)", description: "Median/min/max awarded value for a keyword in one country, with sample awards and freshness. Advisory only.", mimeType: "application/json" },
+    async (uri, vars) => text(uri, await marketBenchmark(v(vars.country), v(vars.keyword))));
 
   server.registerResource("audit-history", new ResourceTemplate("bidbox://runs/{run}/audit", { list: undefined }),
     { title: "Audit history (read-only)", description: "Append-only tool-call history for an agent run", mimeType: "application/json" },
